@@ -1,0 +1,61 @@
+{
+  "entities": {
+    "church": {
+      "title": "Church",
+      "description": "Information about a church and its material delivery status.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique 3-digit ID (e.g., 001-300)."
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the church."
+        },
+        "responsible": {
+          "type": "string",
+          "description": "Name of the responsible person."
+        },
+        "community": {
+          "type": "string",
+          "description": "Name of the community."
+        },
+        "bookQuantity": {
+          "type": "integer",
+          "description": "Number of books to deliver."
+        },
+        "phoneNumber": {
+          "type": "string",
+          "description": "Contact phone number."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["Pendiente", "Entregado"],
+          "description": "Estado actual de la entrega."
+        },
+        "deliveryDate": {
+          "type": "string",
+          "format": "date",
+          "description": "Date of delivery (YYYY-MM-DD)."
+        },
+        "deliveryTime": {
+          "type": "string",
+          "description": "Time of delivery (HH:mm)."
+        },
+        "deliveredAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO timestamp of when the delivery was recorded."
+        }
+      },
+      "required": ["id", "name", "status"]
+    }
+  },
+  "firestore": {
+    "churches": {
+      "schema": "church",
+      "description": "Collection of churches for distribution tracking."
+    }
+  }
+}

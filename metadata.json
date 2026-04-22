@@ -1,0 +1,8 @@
+{
+  "name": "ChurchLink Delivery Tracker",
+  "description": "Real-time material distribution tracker for 300 churches with QR scanning and live delivery dashboard.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": []
+}

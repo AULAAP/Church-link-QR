@@ -1,0 +1,50 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidChurch(church) {
+      return church.keys().hasAll(['id', 'name', 'status', 'responsible', 'community', 'bookQuantity'])
+          && church.id is string
+          && church.name is string
+          && church.status in ['Pendiente', 'Entregado'];
+    }
+
+    match /churches/{churchId} {
+      allow read: if true; // Publicly readable for monitoring
+      
+      allow create: if isSignedIn() 
+          && isValidId(churchId) 
+          && isValidChurch(request.resource.data);
+          
+      allow update: if isSignedIn()
+          && isValidChurch(request.resource.data)
+          // Ensure ID is immutable
+          && request.resource.data.id == resource.data.id
+          // Only allow status changes if Pending
+          && (
+            (resource.data.status == 'Pendiente' && request.resource.data.status == 'Entregado')
+            || (request.resource.data.status == resource.data.status)
+          );
+          
+      allow delete: if request.auth != null;
+    }
+    
+    // Test collection for connectivity check
+    match /test/connection {
+      allow read: if true;
+    }
+  }
+}
