@@ -1,158 +1,167 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap');
-@import "tailwindcss";
+import { initializeApp } from 'firebase/app';
+import { 
+  getFirestore, 
+  collection, 
+  doc, 
+  getDoc, 
+  getDocs, 
+  setDoc, 
+  updateDoc, 
+  deleteDoc,
+  writeBatch,
+  query, 
+  where,
+  onSnapshot,
+  orderBy,
+  getDocFromServer
+} from 'firebase/firestore';
+import { 
+  getAuth, 
+  signInWithPopup, 
+  GoogleAuthProvider, 
+  onAuthStateChanged,
+  User
+} from 'firebase/auth';
+import { getStorage } from 'firebase/storage';
+import firebaseConfig from '../../firebase-applet-config.json';
+import { Church, FirestoreErrorInfo } from '../types';
 
-@theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-  
-  /* Full Hex Palette to prevent html2canvas oklch errors */
-  --color-white: #ffffff;
-  --color-black: #000000;
-  
-  --color-blue-50: #eff6ff;
-  --color-blue-100: #dbeafe;
-  --color-blue-200: #bfdbfe;
-  --color-blue-300: #93c5fd;
-  --color-blue-400: #60a5fa;
-  --color-blue-500: #3b82f6;
-  --color-blue-600: #2563eb;
-  --color-blue-700: #1d4ed8;
-  --color-blue-800: #1e40af;
-  --color-blue-900: #1e3a8a;
-  --color-blue-950: #172554;
+const app = initializeApp(firebaseConfig);
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export const auth = getAuth(app);
+export const storage = getStorage(app);
+export const googleProvider = new GoogleAuthProvider();
 
-  --color-gray-50: #f9fafb;
-  --color-gray-100: #f3f4f6;
-  --color-gray-200: #e5e7eb;
-  --color-gray-300: #d1d5db;
-  --color-gray-400: #9ca3af;
-  --color-gray-500: #6b7280;
-  --color-gray-600: #4b5563;
-  --color-gray-700: #374151;
-  --color-gray-800: #1f2937;
-  --color-gray-900: #111827;
-  --color-gray-950: #030712;
-
-  --color-orange-50: #fff7ed;
-  --color-orange-100: #ffedd5;
-  --color-orange-200: #fed7aa;
-  --color-orange-600: #ea580c;
-  --color-orange-700: #c2410c;
-  
-  --color-red-50: #fef2f2;
-  --color-red-600: #dc2626;
-  
-  --color-green-50: #f0fdf4;
-  --color-green-600: #16a34a;
-  --color-green-700: #15803d;
+export function handleFirestoreError(error: any, operation: FirestoreErrorInfo['operationType'], path: string | null = null): never {
+  const user = auth.currentUser;
+  const errorInfo: FirestoreErrorInfo = {
+    error: error.message || 'Unknown Firestore error',
+    operationType: operation,
+    path,
+    authInfo: {
+      userId: user?.uid || 'unauthenticated',
+      email: user?.email || '',
+      emailVerified: user?.emailVerified || false,
+      isAnonymous: user?.isAnonymous || false,
+      providerInfo: user?.providerData.map(p => ({
+        providerId: p.providerId,
+        displayName: p.displayName || '',
+        email: p.email || ''
+      })) || []
+    }
+  };
+  throw new Error(JSON.stringify(errorInfo));
 }
 
-@layer base {
-  body {
-    @apply antialiased text-gray-900;
-  }
-}
-
-/* Custom QR Scanner Styles */
-#qr-reader {
-  border: none !important;
-}
-
-#qr-reader__dashboard {
-  display: none !important;
-}
-
-#qr-reader img {
-  display: none !important;
-}
-
-#qr-reader video {
-  @apply rounded-xl;
-}
-
-#qr-reader button {
-  @apply inline-flex items-center justify-center rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition-all hover:bg-gray-800 active:scale-95;
-  important: true; /* This is not a thing, let's just use raw CSS or ! prefix */
-}
-
-/* Correct way to do important in TW4 @apply is ! prefix on each utility, 
-   but it's easier to just write standard CSS for these specific overrides */
-#qr-reader button {
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  border-radius: 0.5rem !important;
-  background-color: #111827 !important; /* gray-900 */
-  padding: 0.5rem 1rem !important;
-  font-size: 0.875rem !important;
-  font-weight: 500 !important;
-  color: white !important;
-}
-
-#qr-reader button:hover {
-  background-color: #1f2937 !important; /* gray-800 */
-}
-
-@media print {
-  body {
-    background-color: white !important;
-  }
-  
-  /* Ocultar elementos de navegación y cabeceras al imprimir */
-  header, nav, .no-print, button, .print-hide {
-    display: none !important;
-  }
-
-  /* Asegurar que el contenedor de impresión ocupe todo el ancho */
-  main {
-    padding: 0 !important;
-    margin: 0 !important;
-  }
-
-  /* Forzar colores de fondo de impresión */
-  * {
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-  }
-
-  /* Ajustar la rejilla de QRs para impresión */
-  .print-grid {
-    display: grid !important;
-    grid-template-columns: repeat(3, 1fr) !important;
-    gap: 1rem !important;
-  }
-
-  /* Estilo específico para la tarjeta de QR al imprimir */
-  .qr-card-print {
-    break-inside: avoid !important;
-    border: 1px solid #e5e7eb !important;
-    box-shadow: none !important;
-    transform: none !important;
-    transition: none !important;
-    animation: none !important;
-    background-color: #ffffff !important;
-  }
-
-  /* Force standard colors for PDF generator to avoid oklch error */
-  .qr-card-print div, 
-  .qr-card-print span,
-  .qr-card-print p {
-    color: #111827 !important; /* gray-900 */
-  }
-
-  .qr-card-print .text-blue-600 {
-    color: #2563eb !important; /* blue-600 */
-  }
-
-  /* Ensure QR codes are visible */
-  .qr-card-print svg {
-    display: block !important;
-    max-width: 100% !important;
-  }
-
-  @page {
-    margin: 1cm !important;
+export async function testConnection() {
+  try {
+    await getDocFromServer(doc(db, 'test', 'connection'));
+    console.log('Firebase connection successful');
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.error("Please check your Firebase configuration.");
+    }
   }
 }
 
+// Church Services
+const CHURCHES_COLLECTION = 'churches';
 
+export async function getChurches(): Promise<Church[]> {
+  try {
+    const q = query(collection(db, CHURCHES_COLLECTION), orderBy('id', 'asc'));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => doc.data() as Church);
+  } catch (error) {
+    return handleFirestoreError(error, 'list', CHURCHES_COLLECTION);
+  }
+}
+
+export function subscribeToChurches(callback: (churches: Church[]) => void) {
+  const q = query(collection(db, CHURCHES_COLLECTION), orderBy('id', 'asc'));
+  return onSnapshot(q, (snapshot) => {
+    const churches = snapshot.docs.map(doc => doc.data() as Church);
+    callback(churches);
+  }, (error) => {
+    console.error('Error subscribing to churches:', error);
+  });
+}
+
+export async function markAsDelivered(churchId: string): Promise<void> {
+  try {
+    const churchDoc = doc(db, CHURCHES_COLLECTION, churchId);
+    const snapshot = await getDoc(churchDoc);
+    
+    if (!snapshot.exists()) {
+      throw new Error(`Church with ID ${churchId} not found.`);
+    }
+    
+    const churchData = snapshot.data() as Church;
+    if (churchData.status === 'Entregado') {
+      throw new Error('Ya ha sido entregado');
+    }
+
+    const now = new Date();
+    const deliveryDate = now.toISOString().split('T')[0];
+    const deliveryTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+
+    await updateDoc(churchDoc, {
+      status: 'Entregado',
+      deliveryDate,
+      deliveryTime,
+      deliveredAt: now.toISOString()
+    });
+  } catch (error: any) {
+    if (error.message === 'Ya ha sido entregado') throw error;
+    return handleFirestoreError(error, 'update', `${CHURCHES_COLLECTION}/${churchId}`);
+  }
+}
+
+export async function updateChurchQrUrl(churchId: string, qrCodeUrl: string): Promise<void> {
+  try {
+    const churchDoc = doc(db, CHURCHES_COLLECTION, churchId);
+    await updateDoc(churchDoc, { qrCodeUrl });
+  } catch (error: any) {
+    return handleFirestoreError(error, 'update', `${CHURCHES_COLLECTION}/${churchId}`);
+  }
+}
+export async function clearAllChurches() {
+  console.log('--- EXTREME CLEAN STARTED ---');
+  try {
+    const churchesRef = collection(db, CHURCHES_COLLECTION);
+    const snapshot = await getDocs(churchesRef);
+    
+    if (snapshot.empty) {
+      console.log('No documents found');
+      return;
+    }
+
+    console.log(`Deleting ${snapshot.size} documents...`);
+
+    // Individual delete as fallback if batch fails
+    const promises = snapshot.docs.map(docSnap => {
+      const docRef = doc(db, CHURCHES_COLLECTION, docSnap.id);
+      return deleteDoc(docRef);
+    });
+
+    await Promise.all(promises);
+    console.log('All documents deleted individually');
+  } catch (error: any) {
+    console.error('CRITICAL CLEANUP ERROR:', error);
+    throw error;
+  }
+}
+
+export async function seedChurches(churches: Church[]) {
+  try {
+    const batch = writeBatch(db);
+    churches.forEach((church) => {
+      const churchRef = doc(db, CHURCHES_COLLECTION, church.id);
+      batch.set(churchRef, church);
+    });
+    await batch.commit();
+    console.log('Seeding complete');
+  } catch (error) {
+    return handleFirestoreError(error, 'write', CHURCHES_COLLECTION);
+  }
+}
