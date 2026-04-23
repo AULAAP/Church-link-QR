@@ -59,7 +59,7 @@ async function startServer() {
           width: 512,
           margin: 2,
           color: {
-            dark: '#1D4ED8', // Blue 700 to match UI
+            dark: '#000000', // Black QR
             light: '#FFFFFF',
           },
         });
@@ -69,28 +69,26 @@ async function startServer() {
           to: church.email,
           subject: emailTemplate?.subject || `Código QR para Entrega - ${church.name}`,
           html: (emailTemplate?.html || `
-            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
-              <div style="background-color: #2563EB; padding: 20px; text-align: center; color: white;">
-                <h1 style="margin: 0; font-size: 20px;">ENTREGA DE MATERIALES</h1>
+            <div style="font-family: sans-serif; max-width: 400px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; text-align: center; background: white;">
+              <div style="margin-bottom: 20px;">
+                <img src="cid:qrcode" alt="Código QR" style="width: 180px; height: 180px;" />
               </div>
-              <div style="padding: 30px; text-align: center;">
-                <p>Hola <strong>{{responsible}}</strong>,</p>
-                <p>Adjunto encontrará el código QR correspondiente a la iglesia <strong>{{churchName}}</strong>.</p>
-                <div style="margin: 30px 0;">
-                  <img src="cid:qrcode" alt="Código QR" style="width: 200px; height: 200px; border: 4px solid #f1f5f9; border-radius: 12px;" />
-                </div>
-                <div style="background-color: #F8FAFC; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-                  <p style="margin: 0; font-size: 14px; font-weight: bold; color: #1E293B;">ID ÚNICO: <span style="font-family: monospace; letter-spacing: 2px;">{{id}}</span></p>
-                </div>
-                <p style="font-size: 14px; color: #64748B;">Por favor, presente este código en el puesto de entrega para recibir sus materiales.</p>
+              <h2 style="margin: 0 0 5px 0; font-size: 16px; font-weight: 800; color: #111827; text-transform: uppercase;">{{churchName}}</h2>
+              <p style="margin: 0 0 15px 0; font-size: 11px; font-weight: bold; color: #2563EB; text-transform: uppercase;">{{community}}</p>
+              <div style="margin: 20px 0;">
+                <p style="margin: 0; font-size: 20px; font-family: monospace; letter-spacing: 4px; font-weight: bold; color: #111827;">{{id}}</p>
               </div>
-              <div style="background-color: #F8FAFC; padding: 15px; text-align: center; font-size: 11px; color: #94A3B8; border-top: 1px solid #e2e8f0;">
-                Sistema de Seguimiento ChurchLink
+              <div style="margin: 20px 0;">
+                <p style="margin: 0; font-size: 12px; font-weight: bold; color: #6B7280; text-transform: uppercase;">LIBROS</p>
+                <p style="margin: 0; font-size: 36px; font-weight: 900; color: #2563EB;">{{bookQuantity}}</p>
               </div>
+              <p style="margin: 15px 0 0 0; font-size: 11px; color: #6B7280; font-style: italic;">Resp: {{responsible}}</p>
             </div>
           `)
           .replace(/{{churchName}}/g, church.name)
           .replace(/{{responsible}}/g, church.responsible)
+          .replace(/{{community}}/g, church.community)
+          .replace(/{{bookQuantity}}/g, church.bookQuantity.toString())
           .replace(/{{id}}/g, church.id),
           attachments: [
             {

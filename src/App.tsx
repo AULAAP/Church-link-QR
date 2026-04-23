@@ -1,5 +1,6 @@
 import React, { useState, useEffect, ReactNode } from 'react';
 import { 
+  db,
   auth, 
   googleProvider, 
   subscribeToChurches, 
@@ -10,6 +11,7 @@ import {
   storage,
   updateChurchQrUrl
 } from './lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL } from 'firebase/storage';
 import QRCode from 'qrcode';
 import { 
@@ -58,7 +60,110 @@ function cn(...inputs: ClassValue[]) {
 
 type Tab = 'dashboard' | 'scanner' | 'print';
 
+// -------------------------------------------------------------
+// Componente de Ticket Público (URL compartida por WhatsApp)
+// -------------------------------------------------------------
+function PublicTicketView({ id }: { id: string }) {
+  const [church, setChurch] = useState<Church | null>(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const docRef = doc(db, 'churches', id);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          setChurch(docSnap.data() as Church);
+        } else {
+          setError('Ticket no encontrado o expirado.');
+        }
+      } catch (e: any) {
+        setError('Error conectando con el sistema.');
+      }
+    }
+    loadData();
+  }, [id]);
+
+  const downloadImage = async () => {
+    const el = document.getElementById('ticket-card');
+    if (!el) return;
+    try {
+      // Configuraciones extra para garantizar compatibilidad móvil y evitar recortes
+      const canvas = await html2canvas(el, { 
+        scale: window.devicePixelRatio > 1 ? window.devicePixelRatio : 2,
+        useCORS: true,
+        allowTaint: true,
+        scrollX: 0,
+        scrollY: -window.scrollY,
+        windowWidth: document.documentElement.offsetWidth,
+        windowHeight: document.documentElement.offsetHeight
+      });
+      const link = document.createElement('a');
+      link.download = `Ticket_${id}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } catch (e) {
+      alert('Error al generar la imagen. Intente de nuevo.');
+    }
+  };
+
+  if (error) {
+    return <div className="p-8 text-center text-red-600 font-bold">{error}</div>;
+  }
+  if (!church) {
+    return <div className="p-8 text-center text-gray-500 font-bold flex items-center justify-center gap-2"><Loader2 className="animate-spin" /> Cargando ticket...</div>;
+  }
+
+  // Idéntico al formato del correo / pantalla de confirmación masiva
+  return (
+    <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-4">
+      <div className="max-w-md w-full flex flex-col items-center">
+        <div id="ticket-card" className="bg-white rounded-2xl p-8 border border-gray-200 shadow-xl w-full text-center relative overflow-hidden">
+          <div className="flex justify-center mb-6">
+            <img src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(church.id)}`} alt="QR Code" className="w-[180px] h-[180px]" crossOrigin="anonymous" />
+          </div>
+          <h2 className="text-[16px] font-extrabold text-gray-900 uppercase leading-snug mb-2">{church.name}</h2>
+          <p className="text-[12px] font-bold text-blue-600 uppercase mb-5">{church.community}</p>
+          
+          <div className="my-5 relative">
+            <div className="absolute inset-x-0 inset-y-1/2 border-t-2 border-dashed border-gray-100 -z-10"></div>
+            <p className="text-xl inline-block bg-white px-4 font-mono tracking-[4px] font-bold text-gray-900">{church.id}</p>
+          </div>
+          
+          <div className="my-5">
+            <p className="text-[11px] font-bold text-gray-500 uppercase">LIBROS A ENTREGAR</p>
+            <p className="text-5xl font-black text-blue-600 leading-none mt-1">{church.bookQuantity}</p>
+          </div>
+          
+          <div className="mt-6 pt-5 border-t border-gray-100">
+            <p className="text-[12px] text-gray-500 italic">Responsable: <span className="font-semibold text-gray-700">{church.responsible}</span></p>
+          </div>
+        </div>
+        
+        <button 
+          onClick={downloadImage}
+          className="mt-8 flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-8 rounded-full shadow-lg transition-all active:scale-95"
+        >
+          <Download size={20} />
+          Descargar Etiqueta como Imagen
+        </button>
+        <p className="mt-4 text-xs text-gray-500 text-center px-4">
+          Esta etiqueta es idéntica a la enviada por correo. Presente este ticket al momento de retirar su material.
+        </p>
+      </div>
+    </div>
+  );
+}
+// -------------------------------------------------------------
+
 export default function App() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const publicTicketId = urlParams.get('ticket');
+
+  if (publicTicketId) {
+    return <PublicTicketView id={publicTicketId} />;
+  }
+
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [churches, setChurches] = useState<Church[]>([]);
@@ -66,11 +171,14 @@ export default function App() {
   const [isImporting, setIsImporting] = useState(false);
   const [search, setSearch] = useState('');
   const [scannerResult, setScannerResult] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+  const [globalToast, setGlobalToast] = useState<{ type: 'success' | 'error', message: string } | null>(null);
   const [isExportingPDF, setIsExportingPDF] = useState(false);
   const [isExportingReport, setIsExportingReport] = useState(false);
   const [isSendingEmails, setIsSendingEmails] = useState(false);
   const [processingRowId, setProcessingRowId] = useState<string | null>(null);
   const [showEmailModal, setShowEmailModal] = useState(false);
+  const [showBulkConfirmModal, setShowBulkConfirmModal] = useState(false);
+  const [bulkEmailsTarget, setBulkEmailsTarget] = useState<Church[]>([]);
   const [emailStatus, setEmailStatus] = useState<{success: number, failed: number, errors: string[]} | null>(null);
   const scannerInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -364,31 +472,8 @@ export default function App() {
   );
 
   const ensureQrCode = async (church: Church): Promise<string> => {
-    if (church.qrCodeUrl) return church.qrCodeUrl;
-    
-    // Generate and upload
-    const dataUrl = await QRCode.toDataURL(church.id, { 
-      width: 512,
-      margin: 2,
-      color: {
-        dark: '#1D4ED8',
-        light: '#FFFFFF',
-      }
-    });
-
-    const storageRef = ref(storage, `qrs/${church.id}.png`);
-    await uploadString(storageRef, dataUrl, 'data_url');
-    const url = await getDownloadURL(storageRef);
-    
-    // Update DB
-    await updateChurchQrUrl(church.id, url);
-    
-    // Update local state
-    setChurches(prev => prev.map(c => 
-      c.id === church.id ? { ...c, qrCodeUrl: url } : c
-    ));
-    
-    return url;
+    // Utilize a public API to generate the QR code on the fly without needing Firebase Storage
+    return `https://api.qrserver.com/v1/create-qr-code/?size=512x512&data=${encodeURIComponent(church.id)}`;
   };
 
   const sendWhatsApp = async (church: Church) => {
@@ -396,86 +481,105 @@ export default function App() {
     setProcessingRowId(church.id);
     
     try {
-      const qrUrl = await ensureQrCode(church);
+      // Instead of the raw API QR image, we link directly to the app's beautiful ticket view
+      const qrUrl = `${window.location.origin}/?ticket=${encodeURIComponent(church.id)}`;
 
       const message = encodeURIComponent(
         `*ENTREGA DE MATERIALES*\n\n` +
         `Hola *${church.responsible}*,\n\n` +
-        `Sinceramente esperamos que se encuentre bien. Su código para la entrega de libros de *${church.name}* es el siguiente:\n\n` +
+        `Sinceramente esperamos que se encuentre bien. A continuación el ticket para la entrega de libros de *${church.name}*:\n\n` +
         `🆔 *ID:* ${church.id}\n` +
         `📍 *Comunidad:* ${church.community}\n` +
         `📚 *Cantidad:* ${church.bookQuantity}\n\n` +
-        `📥 *Link del Código QR:* ${qrUrl}\n\n` +
-        `Por favor, presente este ID o código QR al momento de la entrega.\n\n` +
+        `📥 *ABRIR TICKET:* ${qrUrl}\n\n` +
+        `Por favor, abra el enlace y presente el ticket al momento de la entrega.\n\n` +
         `_Sistema de Seguimiento ChurchLink_`
       );
       
-      const cleanPhone = church.phoneNumber.replace(/\D/g, '');
+      let cleanPhone = church.phoneNumber ? church.phoneNumber.replace(/\D/g, '') : '';
+      
+      if (!cleanPhone || cleanPhone.length < 10) {
+        setProcessingRowId(null);
+        setGlobalToast({ type: 'error', message: `El teléfono "${church.phoneNumber}" no es válido.` });
+        setTimeout(() => setGlobalToast(null), 5000);
+        return;
+      }
+      
+      // Auto-completar el código de país (1 para RD/USA) si el usuario introdujo solo 10 dígitos.
+      if (cleanPhone.length === 10) {
+        cleanPhone = '1' + cleanPhone;
+      }
+      
+      // Usar directamente el enrutador wa.me original oficial.
+      // Cuando WhatsApp te muestra la lista de "Reenviar a" es 100% causado porque 'cleanPhone' está vacío
+      // o le faltaba el código de país. Ahora que tiene el guard de seguridad arriba, pasará sí o sí.
       const url = `https://wa.me/${cleanPhone}?text=${message}`;
-      window.open(url, '_blank');
+      
+      // Intentar abrirlo en una ventana normal
+      try {
+        const opened = window.open(url, '_blank', 'noopener,noreferrer');
+        if (!opened) {
+          // Fallback en caso de que popup blocker esté asumiendo el control
+          const link = document.createElement('a');
+          link.href = url;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }
+      } catch (e) {
+        // En un entorno rígido bloqueado, usamos location href (sacará al usuario de la app si está incrustada)
+        window.location.href = url;
+      }
       
       setChurches(prev => prev.map(c => 
         c.id === church.id ? { ...c, whatsappSent: true } : c
       ));
     } catch (err) {
       console.error("Error sending WhatsApp:", err);
-      alert("Error al procesar el código QR.");
+      setGlobalToast({ type: 'error', message: 'Error al intentar abrir WhatsApp.' });
+      setTimeout(() => setGlobalToast(null), 5000);
     } finally {
       setProcessingRowId(null);
     }
   };
 
-  const sendSingleEmail = async (church: Church) => {
-    if (processingRowId) return;
-    if (!church.email) return;
-    
-    if (!confirm(`¿Enviar QR por email a ${church.email}?`)) return;
-    
-    setProcessingRowId(church.id);
-    try {
-      // Ensure QR is uploaded first (the backend generates it too, but we want the link in DB)
-      await ensureQrCode(church);
-      
-      const response = await fetch('/api/send-bulk-emails', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ churches: [church] })
-      });
-      
-      const data = await response.json();
-      if (data.success) {
-        alert('Correo enviado con éxito');
-      } else {
-        alert('Error enviando correo: ' + (data.errors?.[0] || 'Desconocido'));
-      }
-    } catch (err) {
-      console.error("Error sending email:", err);
-      alert("Error al enviar el correo.");
-    } finally {
-      setProcessingRowId(null);
+  const sendSingleEmail = (church: Church) => {
+    if (!church.email) {
+      setGlobalToast({ type: 'error', message: 'La iglesia seleccionada no tiene correo registrado.' });
+      setTimeout(() => setGlobalToast(null), 5000);
+      return;
     }
+    setBulkEmailsTarget([church]);
+    setShowBulkConfirmModal(true);
   };
 
-  const sendBulkEmails = async () => {
+  const handleBulkEmailsClick = () => {
     if (churches.length === 0) return;
     
     const churchesWithEmail = churches.filter(c => c.email && c.email.includes('@'));
     if (churchesWithEmail.length === 0) {
-      alert('Error: Ninguna iglesia tiene un correo electrónico válido registrado.');
+      setGlobalToast({ type: 'error', message: 'Ninguna iglesia tiene un correo electrónico válido registrado.' });
+      setTimeout(() => setGlobalToast(null), 5000);
       return;
     }
 
-    if (!confirm(`¿Está seguro de enviar correos masivos a ${churchesWithEmail.length} iglesias?`)) return;
+    setBulkEmailsTarget(churchesWithEmail);
+    setShowBulkConfirmModal(true);
+  };
 
+  const executeBulkEmails = async () => {
     setIsSendingEmails(true);
     setEmailStatus(null);
     setShowEmailModal(true);
+    setShowBulkConfirmModal(false);
     
     try {
       const response = await fetch('/api/send-bulk-emails', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ churches: churchesWithEmail })
+        body: JSON.stringify({ churches: bulkEmailsTarget })
       });
 
       const data = await response.json();
@@ -485,7 +589,8 @@ export default function App() {
         throw new Error(data.error || 'Fallo al enviar correos');
       }
     } catch (error: any) {
-      alert('Error al enviar correos: ' + error.message);
+      setScannerResult({ type: 'error', message: 'Error al enviar correos: ' + error.message });
+      setTimeout(() => setScannerResult(null), 5000);
       setShowEmailModal(false);
     } finally {
       setIsSendingEmails(false);
@@ -722,7 +827,30 @@ export default function App() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl p-4 md:p-8">
+      <main className="mx-auto max-w-7xl relative p-4 md:p-8">
+        <AnimatePresence>
+          {globalToast && (
+            <motion.div 
+              initial={{ opacity: 0, y: -20, x: '-50%' }}
+              animate={{ opacity: 1, y: 0, x: '-50%' }}
+              exit={{ opacity: 0, y: -20, x: '-50%' }}
+              className={cn(
+                "fixed top-4 left-1/2 z-[200] flex items-center gap-3 rounded-xl border p-4 shadow-lg w-[90%] max-w-sm",
+                globalToast.type === 'success' ? "border-green-200 bg-white text-green-800 shadow-green-100" : "border-red-200 bg-white text-red-800 shadow-red-100"
+              )}
+            >
+              {globalToast.type === 'success' ? <CheckCircle2 className="mt-0.5 text-green-500" /> : <AlertCircle className="mt-0.5 text-red-500" />}
+              <div className="flex-1">
+                <p className="text-sm font-bold">{globalToast.type === 'success' ? 'ÉXITO' : 'ERROR'}</p>
+                <p className="text-xs opacity-90 text-gray-600">{globalToast.message}</p>
+              </div>
+              <button onClick={() => setGlobalToast(null)} className="p-1 hover:bg-gray-100 rounded-lg transition-colors">
+                <X size={16} className="text-gray-400" />
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Navigation - Desktop */}
         <nav className="mb-8 hidden md:flex items-center gap-1 rounded-xl bg-white p-1.5 shadow-sm border w-fit">
           <NavButton active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={<LayoutDashboard size={18}/>} label="Panel" />
@@ -856,7 +984,7 @@ export default function App() {
                           </button>
 
                           <button 
-                            onClick={sendBulkEmails}
+                            onClick={handleBulkEmailsClick}
                             disabled={isSendingEmails}
                             className="rounded-lg border border-purple-100 bg-purple-50 px-3 py-1 text-xs font-bold text-purple-700 hover:bg-purple-100 transition-colors flex items-center gap-1"
                           >
@@ -1180,6 +1308,77 @@ export default function App() {
                   )}
                   {isExportingPDF ? 'GENERANDO ARCHIVO...' : 'DESCARGAR TODAS EN PDF'}
                 </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Bulk Email Confirm Modal */}
+        <AnimatePresence>
+          {showBulkConfirmModal && bulkEmailsTarget.length > 0 && (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+            >
+              <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xl font-bold text-gray-900">
+                    {bulkEmailsTarget.length === 1 ? 'Confirmar Envío de Correo' : 'Confirmar Envío Masivo'}
+                  </h3>
+                  <button onClick={() => setShowBulkConfirmModal(false)} className="rounded-full p-2 hover:bg-gray-100 transition-colors">
+                    <X size={20} className="text-gray-500" />
+                  </button>
+                </div>
+                
+                <p className="text-sm text-gray-600 mb-6">
+                  {bulkEmailsTarget.length === 1 
+                    ? 'Se enviará el correo con la siguiente tarjeta en colores negro y azul. Revise la vista previa para '
+                    : `Se enviarán correos a `}
+                  {bulkEmailsTarget.length === 1 
+                    ? <strong className="text-gray-900">{bulkEmailsTarget[0].name}</strong>
+                    : <><strong>{bulkEmailsTarget.length}</strong> iglesias con la siguiente etiqueta en colores negro y azul. Revise la vista previa:</>}
+                </p>
+
+                {/* Vista Previa de la Tarjeta */}
+                <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 mb-6 flex justify-center">
+                  <div className="bg-white border border-gray-200 rounded-xl p-5 text-center shadow-sm w-[280px]">
+                    <div className="flex justify-center mb-4">
+                      <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(bulkEmailsTarget[0].id)}`} alt="QR Code" className="w-[150px] h-[150px]" />
+                    </div>
+                    <h3 className="text-[13px] font-extrabold text-gray-900 uppercase leading-snug mb-1">{bulkEmailsTarget[0].name}</h3>
+                    <p className="text-[9px] font-bold text-blue-600 uppercase mb-4">{bulkEmailsTarget[0].community}</p>
+                    
+                    <div className="my-3">
+                      <p className="text-base font-mono tracking-[3px] font-bold text-gray-900">{bulkEmailsTarget[0].id}</p>
+                    </div>
+                    
+                    <div className="my-3">
+                      <p className="text-[9px] font-bold text-gray-500 uppercase">LIBROS</p>
+                      <p className="text-4xl font-black text-blue-600 leading-none">{bulkEmailsTarget[0].bookQuantity}</p>
+                    </div>
+                    
+                    <p className="text-[9px] text-gray-500 italic mt-3">Resp: {bulkEmailsTarget[0].responsible}</p>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-3 mt-6">
+                  <button 
+                    onClick={() => setShowBulkConfirmModal(false)}
+                    className="px-4 py-2 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    onClick={executeBulkEmails}
+                    disabled={isSendingEmails}
+                    className="flex items-center gap-2 px-5 py-2 rounded-xl bg-blue-600 text-white font-bold text-sm hover:bg-blue-700 transition-colors focus:ring-4 focus:ring-blue-100 disabled:opacity-50"
+                  >
+                    {isSendingEmails ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                     Confirmar Envío
+                  </button>
+                </div>
               </div>
             </motion.div>
           )}
