@@ -175,6 +175,10 @@ export default function App() {
   const [isExportingPDF, setIsExportingPDF] = useState(false);
   const [isExportingReport, setIsExportingReport] = useState(false);
   const [isSendingEmails, setIsSendingEmails] = useState(false);
+  const [emailProgress, setEmailProgress] = useState({ current: 0, total: 0 });
+  const [cancelEmailsRequested, setCancelEmailsRequested] = useState(false);
+  const cancelRequestedRef = React.useRef(false); // To read immediately inside the loop
+
   const [processingRowId, setProcessingRowId] = useState<string | null>(null);
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [showBulkConfirmModal, setShowBulkConfirmModal] = useState(false);
@@ -569,32 +573,74 @@ export default function App() {
     setShowBulkConfirmModal(true);
   };
 
+  const cancelBulkEmails = () => {
+    setCancelEmailsRequested(true);
+    cancelRequestedRef.current = true;
+  };
+
   const executeBulkEmails = async () => {
     setIsSendingEmails(true);
     setEmailStatus(null);
     setShowEmailModal(true);
     setShowBulkConfirmModal(false);
     
-    try {
-      const response = await fetch('/api/send-bulk-emails', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ churches: bulkEmailsTarget })
-      });
+    // Configurar estado de progreso y ref de cancelación
+    setEmailProgress({ current: 0, total: bulkEmailsTarget.length });
+    setCancelEmailsRequested(false);
+    cancelRequestedRef.current = false;
+    
+    const results = {
+      success: 0,
+      failed: 0,
+      errors: [] as string[]
+    };
 
-      const data = await response.json();
-      if (response.ok) {
-        setEmailStatus(data);
-      } else {
-        throw new Error(data.error || 'Fallo al enviar correos');
+    let currentIndex = 0;
+    const CONCURRENCY_LIMIT = 5;
+
+    const worker = async () => {
+      while (currentIndex < bulkEmailsTarget.length) {
+        if (cancelRequestedRef.current) break;
+        
+        const index = currentIndex++;
+        const target = bulkEmailsTarget[index];
+        
+        try {
+          const response = await fetch('/api/send-bulk-emails', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ churches: [target] }) 
+          });
+
+          const data = await response.json();
+          
+          if (response.ok) {
+            results.success += data.success;
+            results.failed += data.failed;
+            results.errors = [...results.errors, ...(data.errors || [])];
+          } else {
+            results.failed += 1;
+            results.errors.push(data.error || `Error enviando a ${target.name}`);
+          }
+        } catch (error: any) {
+          results.failed += 1;
+          results.errors.push(`Fallo de conexión enviando a ${target.name}: ` + error.message);
+        }
+        
+        // Sumar al state sin importar qué hilo terminó
+        setEmailProgress(prev => ({ ...prev, current: prev.current + 1 }));
       }
-    } catch (error: any) {
-      setScannerResult({ type: 'error', message: 'Error al enviar correos: ' + error.message });
-      setTimeout(() => setScannerResult(null), 5000);
-      setShowEmailModal(false);
-    } finally {
-      setIsSendingEmails(false);
+    };
+
+    const workers = Array(Math.min(CONCURRENCY_LIMIT, bulkEmailsTarget.length)).fill(0).map(() => worker());
+    await Promise.all(workers);
+
+    if (cancelRequestedRef.current) {
+        results.errors.push('Envío cancelado por el usuario.');
     }
+
+    setEmailStatus(results);
+    setIsSendingEmails(false);
   };
 
   const printRef = React.useRef<HTMLDivElement>(null);
@@ -1413,14 +1459,36 @@ export default function App() {
 
                 <div className="p-8 text-center">
                   {isSendingEmails ? (
-                    <div className="space-y-4">
+                    <div className="space-y-6">
                       <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-purple-100">
-                        <Loader2 className="h-8 w-8 animate-spin text-purple-600" />
+                        <Mail className="h-8 w-8 animate-bounce text-purple-600" />
                       </div>
                       <div>
-                        <p className="font-bold text-gray-900">Enviando correos...</p>
-                        <p className="text-sm text-gray-500">Por favor, no cierre esta ventana</p>
+                        <p className="font-bold text-gray-900 mb-1">
+                          {cancelEmailsRequested ? 'Cancelando, por favor espere...' : 'Enviando correos...'}
+                        </p>
+                        <p className="text-sm text-gray-500 font-medium">
+                          {emailProgress.current} de {emailProgress.total} procesados
+                        </p>
                       </div>
+                      
+                      {/* Progress Bar Container */}
+                      <div className="w-full bg-gray-200 rounded-full h-3 mb-4 overflow-hidden shadow-inner">
+                        <div 
+                          className="bg-purple-600 h-3 rounded-full transition-all duration-500 ease-out relative" 
+                          style={{ width: `${emailProgress.total > 0 ? (emailProgress.current / emailProgress.total) * 100 : 0}%` }}
+                        >
+                          <div className="absolute top-0 left-0 right-0 bottom-0 bg-white/20 animate-pulse"></div>
+                        </div>
+                      </div>
+
+                      <button 
+                        onClick={cancelBulkEmails}
+                        disabled={cancelEmailsRequested}
+                        className="w-full rounded-2xl bg-red-50 text-red-600 font-bold py-3 hover:bg-red-100 transition-colors border border-red-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {cancelEmailsRequested ? 'Deteniendo...' : 'Cancelar Envío'}
+                      </button>
                     </div>
                   ) : emailStatus ? (
                     <div className="space-y-6">
