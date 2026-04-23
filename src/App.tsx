@@ -40,7 +40,9 @@ import {
   Table,
   MessageSquare,
   Mail,
-  Send
+  Send,
+  Settings,
+  Info
 } from 'lucide-react';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
@@ -58,7 +60,7 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-type Tab = 'dashboard' | 'scanner' | 'print';
+type Tab = 'dashboard' | 'scanner' | 'print' | 'settings';
 
 // -------------------------------------------------------------
 // Componente de Ticket Público (URL compartida por WhatsApp)
@@ -606,10 +608,13 @@ export default function App() {
         const target = bulkEmailsTarget[index];
         
         try {
+          const smtpString = localStorage.getItem('smtpConfig');
+          const smtpConfig = smtpString ? JSON.parse(smtpString) : undefined;
+
           const response = await fetch('/api/send-bulk-emails', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ churches: [target] }) 
+            body: JSON.stringify({ churches: [target], smtpConfig }) 
           });
 
           const data = await response.json();
@@ -902,6 +907,7 @@ export default function App() {
           <NavButton active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={<LayoutDashboard size={18}/>} label="Panel" />
           <NavButton active={activeTab === 'print'} onClick={() => setActiveTab('print')} icon={<Printer size={18}/>} label="Etiquetas" />
           <NavButton active={activeTab === 'scanner'} onClick={() => setActiveTab('scanner')} icon={<Camera size={18}/>} label="Escanear" />
+          <NavButton active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} icon={<Settings size={18}/>} label="Configuración" />
         </nav>
 
         {isImporting && (
@@ -1359,6 +1365,140 @@ export default function App() {
           )}
         </AnimatePresence>
 
+        <AnimatePresence>
+          {activeTab === 'settings' && (
+            <motion.div 
+              key="settings"
+              initial={{ opacity: 0, y:-10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="max-w-2xl mx-auto space-y-6 pb-20"
+            >
+              <div className="border-b pb-4 mb-6">
+                <h2 className="text-2xl font-bold flex items-center gap-2">
+                  <Settings className="text-gray-400" />
+                  Configuración SMTP
+                </h2>
+                <p className="text-gray-500 mt-1">
+                  Agregue las credenciales de su proveedor de correos para habilitar el envío desde la app sin tocar el código fuente ni Vercel.
+                </p>
+              </div>
+
+              <div className="bg-white border rounded-2xl p-6 shadow-sm space-y-4">
+                <div className="bg-blue-50 border border-blue-200 text-blue-800 p-4 rounded-xl text-sm leading-relaxed">
+                  <p className="font-bold flex items-center gap-2 mb-1">
+                    <Info size={16} /> 
+                    ¿Cómo funciona esto?
+                  </p>
+                  <p>
+                    Estas credenciales se guardarán únicamente en la memoria local de su navegador (<strong className="font-mono text-xs">localStorage</strong>). Al momento de enviar un correo individual o masivo, el sistema las leerá al vuelo de aquí en lugar del servidor. Si borra el historial de su navegador, tendrá que ingresarlas de nuevo.
+                  </p>
+                </div>
+                
+                <form className="space-y-4" onSubmit={(e) => {
+                  e.preventDefault();
+                  const fd = new FormData(e.currentTarget);
+                  const newConfig = {
+                    host: fd.get('host'),
+                    port: fd.get('port'),
+                    secure: fd.get('secure') === 'on',
+                    user: fd.get('user'),
+                    pass: fd.get('pass'),
+                    from: fd.get('from'),
+                  };
+                  localStorage.setItem('smtpConfig', JSON.stringify(newConfig));
+                  setGlobalToast({ type: 'success', message: 'Credenciales SMTP guardadas localmente.' });
+                  setTimeout(() => setGlobalToast(null), 3000);
+                }}>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-bold text-gray-700">Host (Servidor)</label>
+                      <input 
+                        name="host" 
+                        required 
+                        defaultValue={JSON.parse(localStorage.getItem('smtpConfig') || '{}')?.host || ''} 
+                        placeholder="ej: smtp-relay.brevo.com" 
+                        className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none" 
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-bold text-gray-700">Puerto</label>
+                      <input 
+                        name="port" 
+                        required 
+                        type="number"
+                        defaultValue={JSON.parse(localStorage.getItem('smtpConfig') || '{}')?.port || '587'} 
+                        placeholder="ej: 587 o 465" 
+                        className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none" 
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-bold text-gray-700">Usuario (Correo de Login)</label>
+                    <input 
+                      name="user" 
+                      required 
+                      defaultValue={JSON.parse(localStorage.getItem('smtpConfig') || '{}')?.user || ''} 
+                      placeholder="ej: tu_correo@gmail.com" 
+                      className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none" 
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-bold text-gray-700">Contraseña (SMTP Pass)</label>
+                    <input 
+                      name="pass" 
+                      required 
+                      type="password"
+                      defaultValue={JSON.parse(localStorage.getItem('smtpConfig') || '{}')?.pass || ''} 
+                      placeholder="Contraseña provista por el servicio" 
+                      className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none" 
+                    />
+                  </div>
+                  
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-bold text-gray-700">Remitente (Nombre y correo quien envía)</label>
+                    <input 
+                      name="from" 
+                      required 
+                      defaultValue={JSON.parse(localStorage.getItem('smtpConfig') || '{}')?.from || ''} 
+                      placeholder='ej: "Mi Evento" <hola@mievento.com>' 
+                      className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none" 
+                    />
+                  </div>
+                  
+                  <label className="flex items-center gap-2 text-sm text-gray-700 mt-2 cursor-pointer w-fit">
+                    <input 
+                      name="secure" 
+                      type="checkbox" 
+                      defaultChecked={JSON.parse(localStorage.getItem('smtpConfig') || '{}')?.secure || false}
+                      className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500" 
+                    />
+                    Usar Conexión Segura (Secure / SSL - Habilitar solo si usa puerto 465)
+                  </label>
+
+                  <div className="pt-4 flex gap-3">
+                    <button type="submit" className="flex-1 bg-gray-900 text-white font-bold rounded-xl p-3 hover:bg-black transition-colors focus:ring-4 focus:ring-gray-200">
+                      Guardar Credenciales en Tarjeta Local
+                    </button>
+                    <button 
+                      type="button" 
+                      onClick={() => {
+                        localStorage.removeItem('smtpConfig');
+                        window.location.reload();
+                      }} 
+                      className="px-6 border border-red-200 bg-white text-red-600 font-bold rounded-xl hover:bg-red-50 transition-colors"
+                    >
+                      Borrarlas
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Bulk Email Confirm Modal */}
         <AnimatePresence>
           {showBulkConfirmModal && bulkEmailsTarget.length > 0 && (
@@ -1530,10 +1670,11 @@ export default function App() {
       </main>
 
       {/* Navigation - Mobile Bottom */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-around border-t bg-white p-2 md:hidden">
-        <MobileNavButton active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={<LayoutDashboard />} label="Estado" />
-        <MobileNavButton active={activeTab === 'print'} onClick={() => setActiveTab('print')} icon={<Printer />} label="Etiquetas" />
-        <MobileNavButton active={activeTab === 'scanner'} onClick={() => setActiveTab('scanner')} icon={<Camera />} label="Escanear" />
+      <nav className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-around border-t bg-white p-2 md:hidden pb-safe">
+        <MobileNavButton active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={<LayoutDashboard size={20} />} label="Estado" />
+        <MobileNavButton active={activeTab === 'print'} onClick={() => setActiveTab('print')} icon={<Printer size={20} />} label="Etiquetas" />
+        <MobileNavButton active={activeTab === 'scanner'} onClick={() => setActiveTab('scanner')} icon={<Camera size={20} />} label="Escanear" />
+        <MobileNavButton active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} icon={<Settings size={20} />} label="Ajustes" />
       </nav>
     </div>
   );
